@@ -1,9 +1,9 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 17
-VisualStudioVersion = 17.14.36301.6 d17.14
+# Visual Studio Version 18
+VisualStudioVersion = 18.8.11912.234 insiders
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SN_DesktopService", "SN_DesktopService\SN_DesktopService.csproj", "{AEC51FD3-7722-44DE-99C8-2D2DF19641FB}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "keyboardListenService", "SN_DesktopService\keyboardListenService.csproj", "{AEC51FD3-7722-44DE-99C8-2D2DF19641FB}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
