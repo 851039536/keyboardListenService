@@ -1,14 +1,20 @@
 ﻿using SN_DesktopService;
 
-TestService service = new TestService();
+// 注册优雅退出处理
+Console.CancelKeyPress += (_, e) =>
+{
+    Console.WriteLine("\n正在退出...");
+    M_GlobalKeyListener.Stop();
+    e.Cancel = true; // 阻止立即终止，留时间给 Stop()
+    Environment.Exit(0);
+};
 
-service.Start();
+HotkeyService.Start();
 
-
-// 等待输入
-//Console.ReadLine();
-while(true) { 
-
+// 保持进程存活
+while(true)
+{
     Thread.Sleep(20);
 }
+
 

@@ -19,16 +19,11 @@ namespace SN_DesktopService
 
         private void Form1_Load(object sender,EventArgs e)
         {
-            // 显示在顶部左侧，紧贴边缘
+            // 显示在主屏幕顶部右侧，紧贴边缘（避开任务栏）
             this.StartPosition = FormStartPosition.Manual;
-            this.Location = new Point(0,0);
-
-            // 显示在顶部右侧，紧贴边缘
-            this.StartPosition = FormStartPosition.Manual;
-            this.Location = new Point(Screen.PrimaryScreen.WorkingArea.Width - this.Width,0);
-
-
-
+            this.Location = new Point(
+                Screen.PrimaryScreen!.WorkingArea.Width - this.Width,0);
         }
     }
 }
+

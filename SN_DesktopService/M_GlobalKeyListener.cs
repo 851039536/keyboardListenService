@@ -1,8 +1,11 @@
 ﻿using System.Diagnostics;
 using System.Runtime.InteropServices;
 
+namespace SN_DesktopService;
+
 /// <summary>
 /// 全局按键监听工具类（支持控制台和GUI应用）
+/// 基于 WH_KEYBOARD_LL 低级键盘钩子实现
 /// </summary>
 public static class M_GlobalKeyListener
 {
@@ -36,12 +39,12 @@ public static class M_GlobalKeyListener
     /// <summary>
     /// 按键按下事件
     /// </summary>
-    public static event EventHandler<KeyEventArgs> KeyDown;
+    public static event EventHandler<KeyEventArgs>? KeyDown;
 
     /// <summary>
     /// 按键释放事件
     /// </summary>
-    public static event EventHandler<KeyEventArgs> KeyUp;
+    public static event EventHandler<KeyEventArgs>? KeyUp;
 
     #endregion
 
@@ -49,8 +52,8 @@ public static class M_GlobalKeyListener
 
     private static LowLevelKeyboardProc _proc;
     private static IntPtr _hookID = IntPtr.Zero;
-    private static bool _isRunning = false;
-    private static Thread _messageLoopThread;
+    private static bool _isRunning;
+    private static Thread? _messageLoopThread;
 
     #endregion
 
@@ -73,6 +76,13 @@ public static class M_GlobalKeyListener
             _messageLoopThread = new Thread(() =>
             {
                 _hookID = SetHook(_proc);
+                if(_hookID == IntPtr.Zero)
+                {
+                    int error = Marshal.GetLastWin32Error();
+                    Console.WriteLine($"[错误] 安装键盘钩子失败，错误码: {error}。请以管理员身份运行。");
+                    _isRunning = false;
+                    return;
+                }
                 Application.Run(); // 启动消息循环
             });
             _messageLoopThread.IsBackground = true;
@@ -80,6 +90,12 @@ public static class M_GlobalKeyListener
         } else
         {
             _hookID = SetHook(_proc);
+            if(_hookID == IntPtr.Zero)
+            {
+                int error = Marshal.GetLastWin32Error();
+                Console.WriteLine($"[错误] 安装键盘钩子失败，错误码: {error}。请以管理员身份运行。");
+                _isRunning = false;
+            }
         }
     }
 
@@ -95,8 +111,8 @@ public static class M_GlobalKeyListener
 
         if(_hookID != IntPtr.Zero)
         {
-            _=UnhookWindowsHookEx(_hookID);
-            _hookID = IntPtr.Zero;
+            _ = UnhookWindowsHookEx(_hookID);
+            // 不立即置零，等消息循环线程退出后再清除，避免 HookCallback 中用到零值句柄
         }
 
         if(_messageLoopThread != null && _messageLoopThread.IsAlive)
@@ -104,6 +120,8 @@ public static class M_GlobalKeyListener
             Application.Exit();
             _messageLoopThread.Join(500);
         }
+
+        _hookID = IntPtr.Zero;
     }
 
     #endregion
@@ -113,28 +131,36 @@ public static class M_GlobalKeyListener
     private static IntPtr SetHook(LowLevelKeyboardProc proc)
     {
         using(Process curProcess = Process.GetCurrentProcess())
-        using(ProcessModule curModule = curProcess.MainModule)
+        using(ProcessModule curModule = curProcess.MainModule!)
         {
             return SetWindowsHookEx(WH_KEYBOARD_LL,proc,GetModuleHandle(curModule.ModuleName),0);
         }
     }
 
+    /// <summary>
+    /// Windows 低级键盘钩子回调。
+    /// 在消息泵线程上被 Windows 调用，触发 C# 事件通知订阅者。
+    /// </summary>
     private static IntPtr HookCallback(int nCode,IntPtr wParam,IntPtr lParam)
     {
+        // 缓存句柄，防止 Stop() 并发置零
+        IntPtr hookId = _hookID;
+
         if(nCode >= 0 && _isRunning)
         {
             int vkCode = Marshal.ReadInt32(lParam);
             Keys key = (Keys)vkCode;
 
-            if(wParam == (IntPtr)WM_KEYDOWN || wParam == (IntPtr)WM_SYSKEYDOWN)
+            if(wParam is (IntPtr)WM_KEYDOWN or (IntPtr)WM_SYSKEYDOWN)
             {
                 KeyDown?.Invoke(null,new KeyEventArgs(key));
-            } else if(wParam == (IntPtr)WM_KEYUP || wParam == (IntPtr)WM_SYSKEYUP)
+            } else if(wParam is (IntPtr)WM_KEYUP or (IntPtr)WM_SYSKEYUP)
             {
                 KeyUp?.Invoke(null,new KeyEventArgs(key));
             }
         }
-        return CallNextHookEx(_hookID,nCode,wParam,lParam);
+
+        return CallNextHookEx(hookId,nCode,wParam,lParam);
     }
 
     #endregion

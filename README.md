@@ -34,7 +34,7 @@ keyboardListenService/
     ├── keyboardListenService.csproj    # 项目文件（net9.0-windows）
     ├── Program.cs                      # 程序入口（顶级语句）
     ├── M_GlobalKeyListener.cs          # 全局键盘钩子引擎（核心）
-    ├── TestService.cs                  # 业务服务：事件处理器 + 快捷键逻辑
+    ├── HotkeyService.cs                 # 业务服务：事件处理器 + 快捷键逻辑
     ├── Form1.cs                        # 窗体逻辑（定位到右上角）
     ├── Form1.Designer.cs               # 窗体设计器代码（386×312）
     ├── Form1.resx                      # 窗体资源
@@ -47,9 +47,9 @@ keyboardListenService/
 
 | 文件 | 命名空间 | 职责 |
 |------|---------|------|
-| `Program.cs` | —（顶级语句） | 创建 TestService，启动服务，主线程保活循环 |
-| `M_GlobalKeyListener.cs` | 全局命名空间 | P/Invoke 封装，WH_KEYBOARD_LL 钩子安装/卸载/回调 |
-| `TestService.cs` | `SN_DesktopService` | 订阅键盘事件，Ctrl+K 组合键检测，Form1 单例管理 |
+| `Program.cs` | —（顶级语句） | 注册 Ctrl+C 事件，调用 HotkeyService.Start()，主线程保活 |
+| `M_GlobalKeyListener.cs` | `SN_DesktopService` | P/Invoke 封装，WH_KEYBOARD_LL 钩子安装/卸载/回调，含错误处理 |
+| `HotkeyService.cs` | `SN_DesktopService` | 静态类，订阅键盘事件，Ctrl+K 检测，Form1 单例 + FormClosed 清理 |
 | `Form1.cs` / `Form1.Designer.cs` | `SN_DesktopService` | Windows Forms 空窗体，定位到主屏幕右上角 |
 
 ---
@@ -66,9 +66,9 @@ keyboardListenService/
 │                  │               │     ↓                        │
 │ 职责：保活进程    │               │ HookCallback()               │
 │ CPU 占用 ~0%     │               │     ↓                        │
-└──────────────────┘               │ KeyDown / KeyUp 事件触发      │
+└──────────────────┘                                                  │ KeyDown / KeyUp 事件触发      │
                                    │     ↓                        │
-                                   │ TestService.OnKeyDown()      │
+                                   │ HotkeyService.OnKeyDown()    │
                                    │     └→ Ctrl+K → Form1.Show() │
                                    └──────────────────────────────┘
 ```
@@ -84,7 +84,7 @@ keyboardListenService/
 用户按键 → Windows 内核 → WH_KEYBOARD_LL 钩子回调
     → HookCallback() 读取 vkCode
     → 触发 KeyDown/KeyUp C# 事件
-    → TestService.OnKeyDown()
+    → HotkeyService.OnKeyDown()
     → 检测 Ctrl+K → 创建/显示 Form1 窗体
 ```
 
@@ -114,10 +114,11 @@ M_GlobalKeyListener.Start();
   • 在任何窗口按下 `Ctrl+K`，自动弹出 Form1 窗体
   • 窗体显示在主屏幕右上角（`Screen.PrimaryScreen.WorkingArea`，避开任务栏）
   • 已打开的窗体会复用，不会重复创建（单例模式）
+  • 窗体关闭后自动清理引用，下次 Ctrl+K 会重新创建
 
 > **注意**：快捷键检测使用 `Control.ModifierKeys` 而非检查 `Keys.ControlKey`，因为前者即使在全局钩子回调线程上也能正确读取当前 Ctrl 状态。
 
-代码位置：`TestService.cs` → `OnKeyDown` 方法
+代码位置：`HotkeyService.cs` → `OnKeyDown` 方法
 
 ### 后台运行机制
 
@@ -167,7 +168,7 @@ dotnet run
 
 ### M_GlobalKeyListener 类
 
-全局命名空间中的静态类，所有成员为 `public static`。
+`SN_DesktopService` 命名空间中的静态类，所有成员为 `public static`。
 
 **事件**：
 
@@ -192,12 +193,12 @@ public static void Stop();   // 卸载钩子，退出消息循环（等待最多
 | 消息常量 | `WM_KEYDOWN`(0x0100)、`WM_KEYUP`(0x0101)、`WM_SYSKEYDOWN`(0x0104)、`WM_SYSKEYUP`(0x0105) |
 | 钩子链 | 回调始终调用 `CallNextHookEx` 传递事件给下一个钩子 |
 
-### TestService 类
+### HotkeyService 类
 
-命名空间 `SN_DesktopService`。
+命名空间 `SN_DesktopService`，`public static` 静态类。
 
 ```csharp
-public void Start()  // 订阅键盘事件 + 启动 M_GlobalKeyListener
+public static void Start()  // 订阅键盘事件 + 启动 M_GlobalKeyListener（防重入）
 ```
 
 事件处理器：
@@ -232,7 +233,7 @@ A: 请检查以下几点：
 
 **Q: 如何修改快捷键组合**
 
-A: 编辑 `TestService.cs` 中的 `OnKeyDown` 方法：
+A: 编辑 `HotkeyService.cs` 中的 `OnKeyDown` 方法：
 ```csharp
 // 原代码
 if(Control.ModifierKeys == Keys.Control && e.KeyCode == Keys.K)
@@ -248,11 +249,10 @@ A: 编辑 `Form1.cs` 中的 `Form1_Load` 方法：
 ```csharp
 this.Location = new Point(x, y);  // x、y 为屏幕坐标
 ```
-可删除多余的 `this.Location = new Point(0, 0);` 行（该行被后续代码覆盖，无实际效果）。
 
 **Q: 如何停止应用监听**
 
-A: 在代码中调用 `M_GlobalKeyListener.Stop();` 或在终端按 `Ctrl+C` 终止进程。
+A: 按 `Ctrl+C` 优雅退出（会自动调用 `M_GlobalKeyListener.Stop()` 卸载钩子），或直接终止进程。
 
 ---
 
@@ -286,7 +286,7 @@ dotnet publish -c Release -r win-x64
 2. **拦截**：所有键盘事件在到达目标窗口之前先经过钩子链
 3. **处理**：在 `HookCallback` 中读取 `vkCode` 虚拟键码，转为 `Keys` 枚举
 4. **传递**：调用 `CallNextHookEx` 将事件传递给钩子链中的下一个钩子，确保其他应用也能正常工作
-5. **事件**：通过 C# `event` 机制将按键信息传递给订阅者（TestService）
+5. **事件**：通过 C# `event` 机制将按键信息传递给订阅者（HotkeyService）
 
 ### P/Invoke 技术
 
